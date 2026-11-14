@@ -1,0 +1,56 @@
+name: Build Gallery APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check project layout
+        run: |
+          ls -la
+          test -f settings.gradle.kts || (echo "settings.gradle.kts not found in repo root. Upload the CONTENTS of the Gallery folder, not the folder itself." && exit 1)
+          test -d app || (echo "app/ folder is missing from the repo." && exit 1)
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Create keystore
+        run: keytool -genkeypair -keystore app/release.jks -storepass android123 -keypass android123 -alias gallery -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Gallery"
+
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee build.log
+
+      - name: Show errors (if build failed)
+        if: failure()
+        run: |
+          echo "===== Kotlin / Gradle errors ====="
+          grep -nE "^e: |error:|FAILED|What went wrong|Execution failed|Could not " build.log | head -80 || true
+          echo "===== Last 60 lines ====="
+          tail -60 build.log || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gallery-APK
+          path: app/build/outputs/apk/release/*.apk
